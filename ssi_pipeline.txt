@@ -1,0 +1,307 @@
+Attribute VB_Name = "f_ten_twenty_two_final_vs"
+Option Explicit
+Sub file_loop()
+'
+'Loop through a folder of Excel files with SSI recipient data _
+to compile the data into a single workbook.
+'
+'
+'
+'Pick target folder.
+
+Dim FileDir As String
+
+Dim FiletoList As String
+
+Dim open_book As Workbook
+
+Application.ScreenUpdating = False
+
+    With Application.FileDialog(msoFileDialogFolderPicker)
+
+        .Title = "Please select a folder"
+
+        .ButtonName = "Pick Folder"
+
+        If .Show = 0 Then
+
+            MsgBox "Nothing was selected."
+
+            Exit Sub
+
+        Else
+
+            FileDir = .SelectedItems(1) & "\"
+
+        End If
+
+    End With
+    
+'Make a workbook destination for the compiled data.
+
+Workbooks.Add
+
+ActiveWorkbook.SaveAs FileDir & "compiled_data"
+
+'Loop through workbooks in the folder. (Make exceptions for destination _ workbook also in the folder.)
+
+    FiletoList = VBA.FileSystem.DIR(FileDir & "*xls*")
+
+    Do Until FiletoList = ""
+
+        Set open_book = Application.Workbooks.Open(FileDir & FiletoList)
+        
+  Call prepare_workbook
+
+If Not ActiveWorkbook.name Like "*compiled_data*" Then ActiveWorkbook.Close True
+
+        FiletoList = VBA.FileSystem.DIR
+
+    Loop
+
+    Application.ScreenUpdating = True
+
+End Sub
+'''''''''''''''''''''''''''''''''''''
+'''''''''''''''''''''''''''''''''''''
+'''''''''''''''''''''''''''''''''''''
+Sub prepare_workbook()
+'
+'Before going into each worksheet and transforming the SSI data, _
+some workbook preparation is required, like deleting unnecessary _
+worksheets etc.
+'
+'
+'
+'Each workbook has different types of worksheets, so use worksheet name _
+to delete unneeded worksheets.
+
+Application.ScreenUpdating = False
+
+Application.DisplayAlerts = False
+
+Dim Worksheet As Worksheet
+
+Const delete_me As String = "Table 3*"
+
+For Each Worksheet In ActiveWorkbook.Worksheets
+    
+    If ActiveWorkbook.name = "compiled_data.xlsx" Then Exit Sub
+    
+    If Not Worksheet.name Like delete_me Then
+
+        Worksheet.Delete
+
+    End If
+    
+Next Worksheet
+
+Application.DisplayAlerts = True
+
+'Each workbook of SSI data will go onto a worksheet in the _
+compiled_data workbook. So, add worksheet to the compiled_data _
+workbook with prepared column headers for the data that will be _
+pasted there.
+
+Dim workbook_nm As String
+
+    workbook_nm = ActiveWorkbook.name
+    
+    With Workbooks("compiled_data")
+
+        .Worksheets.Add
+
+        .ActiveSheet.name = workbook_nm
+
+        .ActiveSheet.range("a2").Value = "state"
+
+        .ActiveSheet.range("b2").Value = "county"
+
+        .ActiveSheet.range("c2").Value = "category"
+
+        .ActiveSheet.range("d2").Value = "population"
+
+        .ActiveSheet.range("e2").Value = "workbook"
+
+    End With
+
+'Finally, loop through each of the worksheets and _
+transform SSI data.
+
+For Each Worksheet In ActiveWorkbook.Worksheets
+    
+    Worksheet.Activate
+    
+    Call transform_data
+
+Next Worksheet
+
+Application.ScreenUpdating = True
+
+End Sub
+'''''''''''''''''''''''''''''''''''''
+'''''''''''''''''''''''''''''''''''''
+'''''''''''''''''''''''''''''''''''''
+Sub transform_data()
+'
+'Transform original state data.
+'
+'
+'
+' Some worksheets come with extra rows _
+to distinguish counties from independent cities. _
+So, find and remove these rows from the data if _
+they are there.
+
+If range("c6").Value Like "C*" Then
+
+    Rows(6).Delete
+
+End If
+
+Dim row_city As Long
+
+Dim is_empty_col As Long
+    
+    is_empty_col = range("a7").End(xlDown).row
+
+        If is_empty_col = 1048576 Then Exit Sub
+    
+    row_city = range("a7").End(xlDown).row + 1
+        
+        If range("c" & row_city).Value Like "I*" Then
+
+             Rows(row_city).Delete
+
+        End If
+    
+'The transformed data will have a column which _
+specifies the county on each row. So, store county _
+names in an array. This county names array will be _
+used to create the final transformed data array.
+
+Dim county_list() As String
+
+Dim row_length As Long
+
+    row_length = range("a6").End(xlDown).row - 5
+    
+ReDim county_list(1 To row_length)
+
+Dim j As Long
+    
+    For j = 1 To row_length
+
+        county_list(j) = range("a" & j + 5).Value
+
+    Next j
+
+'The transformed data will have a column which _
+specifies the population grouping (like "under _
+18" or "18-64" etc.) So, store population grouping _
+types in an array. This grouping types array will be _
+used to create the final transformed data array.
+
+Dim headers_list(1 To 9) As String
+
+    headers_list(1) = "ANSI code"
+
+    headers_list(2) = "total"
+
+    headers_list(3) = "aged"
+
+    headers_list(4) = "blind and disabled"
+
+    headers_list(5) = "under 18"
+
+    headers_list(6) = "18-64"
+
+    headers_list(7) = "65 or older"
+
+    headers_list(8) = "SSI recipients also receiving OASDI"
+
+    headers_list(9) = "amount of payments"
+
+'Make final transformed data array.
+
+Dim state_data() As Variant
+
+Dim i As Integer    'navigate final array table rows
+
+Dim r As Integer    'navigate original data rows
+
+Dim c As Byte   'navigate original data columns
+
+Dim end_row_array As Long   'holds array length
+
+Dim state_name As String    'holds state name
+
+Dim end_row_dest As Long    'holds destination array length
+
+Dim workbook_nm As String   'holds workbook name
+
+    end_row_array = row_length * 9
+
+    If Len(range("b5").Value) <= 7 Then Exit Sub
+    
+    state_name = Right(range("b5"), Len(range("b5").Value) - 7)
+
+    workbook_nm = ActiveWorkbook.name
+    
+ReDim state_data(1 To end_row_array, 1 To 5)
+
+            i = 1
+    
+    For r = 6 To row_length + 5
+
+        For c = 3 To 11
+
+            state_data(i, 1) = state_name   'column 1 will have the state name
+
+            state_data(i, 2) = county_list(r - 5)   'column 2 will have the county name
+
+            state_data(i, 3) = headers_list(c - 2)  'column 3 will have the population grouping
+
+            state_data(i, 4) = Cells(r, c).Value    'column 4 will be population
+
+            state_data(i, 5) = workbook_nm  'column 5 will have the workbook name
+            
+            i = i + 1
+            
+        Next c
+
+    Next r
+
+'Assign final transformed data array to worksheet in the compiled_data workbook.
+
+Dim top_left_dest_row As Long
+
+Dim bottom_right_dest_row As Long
+
+    With Workbooks("compiled_data").Worksheets(workbook_nm)
+    
+        If .range("a3").Value = "" Then
+            
+            top_left_dest_row = .range("a1").End(xlDown).row + 1
+
+            bottom_right_dest_row = .range("e1").End(xlDown).row + end_row_array
+            
+            .range("a" & top_left_dest_row, "e" & bottom_right_dest_row).Value = state_data
+        
+        End If
+
+        If Not .range("a3").Value = "" Then
+            
+            top_left_dest_row = .range("a2").End(xlDown).row + 1
+
+            bottom_right_dest_row = .range("e2").End(xlDown).row + end_row_array
+            
+            .range("a" & top_left_dest_row, "e" & bottom_right_dest_row).Value = state_data
+        
+        End If
+        
+    End With
+
+End Sub
+
+
